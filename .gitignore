@@ -1,0 +1,30 @@
+*.class
+*.log
+
+# sbt specific
+bin
+~*
+dist/*
+target/
+lib_managed/
+src_managed/
+project/boot/
+project/plugins/project/
+project/project/
+project/target/
+
+# Scala-IDE specific
+.scala_dependencies
+.cache
+.settings
+.project
+.classpath
+
+# Windows specific
+~*
+desktop.ini
+thumbs.db
+
+# MacOS specific
+.DS_Store
+
