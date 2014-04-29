@@ -133,7 +133,7 @@ object GraphTest {
     triCountsGraph.mapReduceTriplets[Boolean](
       triplet => { // Map Function
         if (triplet.srcAttr > triplet.dstAttr) {
-        // Send message to destination vertex containing counter and age
+        // Send message to source and destination vertex with boolean
           Iterator((triplet.srcId, true),(triplet.dstId,false))
         } else {
           if (triplet.srcAttr < triplet.dstAttr){
@@ -144,7 +144,7 @@ object GraphTest {
           }
         }
       },
-      // Add counter and age
+      // a leader needs to be better than all his neighbours.
       (a, b) => a && b // Reduce Function
     )
 
@@ -226,20 +226,51 @@ object GraphTest {
 
   }
 
+  def weightedVertexEntropy(graph: Graph[String,(Double,Double)]) : RDD[(VertexId,Double)] = {
+    // Compute the entropy of of the vertex, as the entropy of the strength of his connections
+
+    // calculate strenghts to build a new graph, where each node has its strength as data.
+    val strength = graph.mapReduceTriplets[Double](triplet => Iterator((triplet.srcId,triplet.attr._1),(triplet.dstId,triplet.attr._2)) , (a,b) => a+b)
+    //println(streght.collect.mkString("\n"))
+    val gStrength = Graph(strength,graph.edges)
+    // Calculate the fraction (or prob) on each edge, for this, we build a new graph that contains this information.
+    gStrength.mapReduceTriplets[Double](
+      triplet => {
+        Iterator((triplet.srcId,if(triplet.srcAttr>0 && triplet.attr._1>0){ math.abs(-1.*(triplet.attr._1/triplet.srcAttr)*math.log10(triplet.attr._1/triplet.srcAttr)) } else {0.}), (triplet.dstId, if (triplet.dstAttr>0 && triplet.attr._2>0){ math.abs(-1.*(triplet.attr._2/triplet.dstAttr)*math.log10(triplet.attr._2/triplet.dstAttr)) } else {0.}))
+      },
+      (a,b) => a+b
+      )
+    
+  }
+
+  def degreeEntropy(graph: Graph[String,(Double,Double)]) : RDD[(VertexId,Double)] = {
+    
+    graph.degrees.mapValues((vid,x) => math.log10(x)).reduceByKey((a,b) => a+b)
+    
+  }
+
+  def vertexDiversity(graph: Graph[String,(Double,Double)]) : RDD[(VertexId,Double)] = {
+    // calculates the diversity of the vertices in the network: if 0 the vertex is focusing all his weight on one neighbor, if 1 it is maximally diversified.
+    // only makes sense for a weighted network
+    weightedVertexEntropy(graph).join(degreeEntropy(graph)).mapValues(x => if (x._2>0) x._1/x._2 else 1.)
+  }
 
   def main(args: Array[String] ) {
     val sc = connectToSparkCluster
 
     // the SparkContext is now available as sc
-    val graph = buildDirGraph("E:/SparkPlayGround/karate_club_nodes.txt","E:/SparkPlayGround/karate_club.txt",sc)
+    val graph = buildDirGraph("resources/data/karate_club_nodes.txt","resources/data/karate_club.txt",sc)
     //println(graph.edges.collect.mkString("\n"))
     //val leaders = socialLeaders(graph)
 
     //println(leaders.collect.mkString("\n"))
     //println(edgeSignificance(graph).edges.collect.mkString("\n"))
     //println(kCoreDecomposition(graph).collect.mkString("\n"))
-    val communities: RDD[(VertexId,Long)] = sc.textFile("E:/SparkPlayGround/karate_club_communities.txt").map(_.split(",")).map(x => (x(0).toLong,x(1).toLong))
-    println("Modularity = " + modularity(graph,communities))
+    //val communities: RDD[(VertexId,Long)] = sc.textFile("E:/SparkPlayGround/karate_club_communities.txt").map(_.split(",")).map(x => (x(0).toLong,x(1).toLong))
+    //println("Modularity = " + modularity(graph,communities))
+    
+    //println(graph.degrees.join(weightedVertexEntropy(graph).join(degreeEntropy(graph))).collect.mkString("\n"))
+    println(vertexDiversity(graph).collect.mkString("\n"))
 
 
   }
