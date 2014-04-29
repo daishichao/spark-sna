@@ -226,6 +226,7 @@ object GraphTest {
 
   }
 
+
   def weightedVertexEntropy(graph: Graph[String,(Double,Double)]) : RDD[(VertexId,Double)] = {
     // Compute the entropy of of the vertex, as the entropy of the strength of his connections
 
@@ -243,17 +244,38 @@ object GraphTest {
     
   }
 
+
   def degreeEntropy(graph: Graph[String,(Double,Double)]) : RDD[(VertexId,Double)] = {
     
     graph.degrees.mapValues((vid,x) => math.log10(x)).reduceByKey((a,b) => a+b)
     
   }
 
+
   def vertexDiversity(graph: Graph[String,(Double,Double)]) : RDD[(VertexId,Double)] = {
     // calculates the diversity of the vertices in the network: if 0 the vertex is focusing all his weight on one neighbor, if 1 it is maximally diversified.
     // only makes sense for a weighted network
     weightedVertexEntropy(graph).join(degreeEntropy(graph)).mapValues(x => if (x._2>0) x._1/x._2 else 1.)
   }
+
+
+  def clusteringCoefficient(graph: Graph[String,(Double,Double)]) : RDD[(VertexId,Double)] = {
+    // calculate the clustering coefficient of the vertices of the graph.
+    // the clustering coefficient is calculated as the ratio between the number of triangles the vertex makes with its neighbours, and the maximal amount he could make (d*(d-1)/2)
+    graph.degrees.join(graph.triangleCount().vertices).mapValues(x => if (x._1>1) 2.*x._2/(x._1*(x._1-1.)) else 1.)
+
+  }
+
+
+  def overlap(graph: Graph[String,(Double,Double)]) : Graph[String,Double] = {
+    val deg = graph.degrees
+    val neigh = graph.mapReduceTriplets[Set[VertexId]] (triplet => Iterator((triplet.srcId,Set(triplet.dstId)),(triplet.dstId,Set(triplet.srcId))),(a,b) => a++b)
+
+    val neighbourGraph = Graph(deg.join(neigh),graph.edges)
+    val overlapGraph = neighbourGraph.mapTriplets(triplet => triplet.srcAttr._2.intersect(triplet.dstAttr._2).size.toDouble/(triplet.srcAttr._1-1+triplet.dstAttr._1-1-triplet.srcAttr._2.intersect(triplet.dstAttr._2).size).toDouble)
+    Graph(graph.vertices,overlapGraph.edges)
+  }
+
 
   def main(args: Array[String] ) {
     val sc = connectToSparkCluster
@@ -270,7 +292,11 @@ object GraphTest {
     //println("Modularity = " + modularity(graph,communities))
     
     //println(graph.degrees.join(weightedVertexEntropy(graph).join(degreeEntropy(graph))).collect.mkString("\n"))
-    println(vertexDiversity(graph).collect.mkString("\n"))
+    //println(vertexDiversity(graph).collect.mkString("\n"))
+
+    //println(clusteringCoefficient(graph).collect.mkString("\n"))
+
+    println(overlap(graph).edges.collect.mkString("\n"))
 
 
   }
