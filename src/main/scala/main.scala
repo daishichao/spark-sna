@@ -5,6 +5,7 @@ import org.apache.spark.SparkContext
 
 import org.apache.spark.SparkContext._
 import org.apache.spark.rdd.RDD
+import scala.reflect.ClassTag
 
 import scala.util.Try
 import com.typesafe.config.ConfigFactory
@@ -127,10 +128,10 @@ object GraphTest {
 
   }*/
 
-  def socialLeaders(graph: Graph[String,(Double,Double)]) : VertexRDD[Boolean] = {
+  def socialLeaders[VD: ClassTag,ED: ClassTag](graph: Graph[VD,ED]) : VertexRDD[Boolean] = {
     // computation of the social leaders in the graph
-    val triCountsGraph = graph.triangleCount()
-    triCountsGraph.mapReduceTriplets[Boolean](
+    val g = graph.triangleCount()
+    g.mapReduceTriplets[Boolean](
       triplet => { // Map Function
         if (triplet.srcAttr > triplet.dstAttr) {
         // Send message to source and destination vertex with boolean
@@ -150,7 +151,7 @@ object GraphTest {
 
   }
 
-  def edgeSignificance(graph: Graph[String,(Double,Double)]) : Graph[String,(Double,Double)] = {
+  def edgeSignificance[VD: ClassTag](graph: Graph[VD,(Double,Double)]) : Graph[VD,(Double,Double)] = {
     // calculate degrees (will be used later on)
     val deg = graph.degrees
     //println(deg.collect.mkString("\n"))
@@ -168,7 +169,7 @@ object GraphTest {
     Graph(graph.vertices,oGraph.edges)
   }
 
-  def kCoreDecomposition(graph: Graph[String,(Double,Double)]) : RDD[(VertexId,Long)] = {
+  def kCoreDecomposition[VD: ClassTag,ED: ClassTag](graph: Graph[VD,ED]) : RDD[(VertexId,Long)] = {
     
     val deg = graph.degrees.map(x => (x._1,x._2.toLong))
     var gCore = Graph(deg,graph.edges.map(x => Edge(x.srcId,x.dstId,1L)))
@@ -283,9 +284,9 @@ object GraphTest {
     // the SparkContext is now available as sc
     val graph = buildDirGraph("resources/data/karate_club_nodes.txt","resources/data/karate_club.txt",sc)
     //println(graph.edges.collect.mkString("\n"))
-    //val leaders = socialLeaders(graph)
+    val leaders = socialLeaders(graph)
 
-    //println(leaders.collect.mkString("\n"))
+    println(leaders.collect.mkString("\n"))
     //println(edgeSignificance(graph).edges.collect.mkString("\n"))
     //println(kCoreDecomposition(graph).collect.mkString("\n"))
     //val communities: RDD[(VertexId,Long)] = sc.textFile("E:/SparkPlayGround/karate_club_communities.txt").map(_.split(",")).map(x => (x(0).toLong,x(1).toLong))
@@ -296,7 +297,7 @@ object GraphTest {
 
     //println(clusteringCoefficient(graph).collect.mkString("\n"))
 
-    println(overlap(graph).edges.collect.mkString("\n"))
+    //println(overlap(graph).edges.collect.mkString("\n"))
 
 
   }
