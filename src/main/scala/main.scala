@@ -203,7 +203,7 @@ object GraphTest {
     gCore.vertices
   }
 
-  def modularity(graph: Graph[String,(Double,Double)], communities: RDD[(VertexId,Long)], weighed: Boolean = false) : Double = {
+  def modularity[VD: ClassTag](graph: Graph[VD,(Double,Double)], communities: RDD[(VertexId,Long)], weighed: Boolean = false) : Double = {
     // Computes the modularity of a partition on a given graph.
     //println(graph.edges.collect.mkString(", "))
     val degrees = if(weighed) graph.mapReduceTriplets[(Double,Double)]( triplet => Iterator((triplet.srcId,(triplet.attr._1,triplet.attr._2)),(triplet.dstId,(triplet.attr._2,triplet.attr._1))) , (a,b) => (a._1+b._1,a._2+b._2) )
@@ -228,7 +228,7 @@ object GraphTest {
   }
 
 
-  def weightedVertexEntropy(graph: Graph[String,(Double,Double)]) : RDD[(VertexId,Double)] = {
+  def weightedVertexEntropy[VD: ClassTag](graph: Graph[VD,(Double,Double)]) : RDD[(VertexId,Double)] = {
     // Compute the entropy of of the vertex, as the entropy of the strength of his connections
 
     // calculate strenghts to build a new graph, where each node has its strength as data.
@@ -246,21 +246,21 @@ object GraphTest {
   }
 
 
-  def degreeEntropy(graph: Graph[String,(Double,Double)]) : RDD[(VertexId,Double)] = {
+  def degreeEntropy[VD: ClassTag](graph: Graph[VD,(Double,Double)]) : RDD[(VertexId,Double)] = {
     
     graph.degrees.mapValues((vid,x) => math.log10(x)).reduceByKey((a,b) => a+b)
     
   }
 
 
-  def vertexDiversity(graph: Graph[String,(Double,Double)]) : RDD[(VertexId,Double)] = {
+  def vertexDiversity[VD: ClassTag](graph: Graph[VD,(Double,Double)]) : RDD[(VertexId,Double)] = {
     // calculates the diversity of the vertices in the network: if 0 the vertex is focusing all his weight on one neighbor, if 1 it is maximally diversified.
     // only makes sense for a weighted network
     weightedVertexEntropy(graph).join(degreeEntropy(graph)).mapValues(x => if (x._2>0) x._1/x._2 else 1.)
   }
 
 
-  def clusteringCoefficient(graph: Graph[String,(Double,Double)]) : RDD[(VertexId,Double)] = {
+  def clusteringCoefficient[VD: ClassTag](graph: Graph[VD,(Double,Double)]) : RDD[(VertexId,Double)] = {
     // calculate the clustering coefficient of the vertices of the graph.
     // the clustering coefficient is calculated as the ratio between the number of triangles the vertex makes with its neighbours, and the maximal amount he could make (d*(d-1)/2)
     graph.degrees.join(graph.triangleCount().vertices).mapValues(x => if (x._1>1) 2.*x._2/(x._1*(x._1-1.)) else 1.)
@@ -268,7 +268,7 @@ object GraphTest {
   }
 
 
-  def overlap(graph: Graph[String,(Double,Double)]) : Graph[String,Double] = {
+  def overlap[VD: ClassTag,ED: ClassTag](graph: Graph[VD,ED]) : Graph[VD,Double] = {
     val deg = graph.degrees
     val neigh = graph.mapReduceTriplets[Set[VertexId]] (triplet => Iterator((triplet.srcId,Set(triplet.dstId)),(triplet.dstId,Set(triplet.srcId))),(a,b) => a++b)
 
