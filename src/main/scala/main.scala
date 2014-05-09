@@ -6,6 +6,7 @@ import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import org.apache.spark.rdd.RDD
 import scala.reflect.ClassTag
+import scala.annotation.tailrec
 
 import scala.util.Try
 import com.typesafe.config.ConfigFactory
@@ -13,6 +14,9 @@ import com.typesafe.config.ConfigValue
 import com.typesafe.config.ConfigValueType._
 import java.util.Map.Entry
 import java.io.File
+
+import System.{currentTimeMillis => now}
+
 
 object GraphTest {
 
@@ -203,6 +207,116 @@ object GraphTest {
     gCore.vertices
   }
 
+  def kCoreDecomposition2[VD: ClassTag,ED: ClassTag](graph: Graph[VD,ED]) : RDD[(VertexId,Long)] = {
+    
+    var gCore = graph.outerJoinVertices(graph.degrees){ (vid, vdata, deg) => deg.getOrElse(0).toLong }.mapEdges( e => 1L )
+    var cores = graph.vertices.mapValues( v => -1L )
+
+
+    //var newCores : RDD[(VertexId,Long)] = deg
+    var modifs : Long = 1
+    var core: Long = 0
+    var nEdges: Long = gCore.edges.count
+    var newEdgeCount: Long = 0
+    while(nEdges>0) {
+      modifs = 1
+      println("Busy with core " + core)
+      while(modifs > 0){
+        println("core = "+core)
+        println("inner loop")
+        // attributes on edges are 1 if both vertices have a core number higher than the current core, and 0 otherwise (simulates the effect of peeling the network)
+        gCore = gCore.subgraph(vpred = (v,d) => d > core)
+        // compute cores based on number of active edges (need to keep all edges to still have a result for vertices with no active edge)
+        def vertexFunc(vdata: Long, deg: Option[Int], core: Long) : Long = {
+          println("core in func = "+core)
+          //println("vdata="+vdata)
+          if(vdata >= 0){
+            //println("kikoulol")
+            vdata
+          }
+          else
+          {
+            deg.getOrElse(-1) match {
+              case -1 => core
+              case _ => -1L
+            }
+          }
+        }
+        println("cores")
+        println(cores.collect.mkString("\n"))
+        println("degrees")
+        println(gCore.degrees.collect.mkString("\n"))
+
+        val coreTmp = core
+        cores = cores.leftJoin(gCore.degrees){(vid,vdata,deg) => vertexFunc(vdata,deg,coreTmp)}
+
+        println("cores after leftJoin")
+        println(cores.collect.mkString("\n"))
+        gCore = gCore.outerJoinVertices(gCore.degrees){ (vid,vdata,deg) => deg.getOrElse(0).toLong}
+
+        // count how many edges are still active in the network
+        newEdgeCount = gCore.edges.count
+        modifs = nEdges - newEdgeCount
+        nEdges = newEdgeCount
+        println("Number of links deleted : " + modifs)
+        //println(gCore.vertices.collect.mkString(", "))
+        
+      }
+      core += 1
+    }
+    cores
+  }
+
+
+  def kCoreDecomposition3[VD: ClassTag,ED: ClassTag](graph: Graph[VD,ED]) : RDD[(VertexId,Long)] = {
+    
+    def core(graph: Graph[Long,ED],coreVal: Long): RDD[(VertexId,Long)] = {
+      if (graph.numEdges==0)
+      {
+        graph.vertices.mapValues(v => coreVal)
+      }
+      else
+      {
+        val g = graph.outerJoinVertices(graph.degrees){ (vid,vdata,deg) => deg.getOrElse(0).toLong}
+        val c = coreVal
+        if (g.subgraph(vpred = (vid,deg) => deg <= c).numVertices == 0)
+        {
+          core(g,c+1)
+        }
+        else
+        {
+          g.vertices.leftJoin(core(g.subgraph(vpred = (vid,deg) => deg > c),c)){(vid,a,b) => if(a == c) a else b.getOrElse(c)}
+        }
+      }
+    }
+
+    core(graph.outerJoinVertices(graph.degrees){(vid,data,deg) => deg.getOrElse(0).toLong},0L)
+  }
+
+
+  def kCoreDecomposition4[VD: ClassTag,ED: ClassTag](graph: Graph[VD,ED]) : RDD[(VertexId,Long)] = {
+    
+    @tailrec def core(graph: Graph[Long,ED],coreVal: Long,cores: VertexRDD[Long]): RDD[(VertexId,Long)] = {
+      if (graph.numEdges==0) {
+        cores
+      }
+      else {
+        val g = graph.outerJoinVertices(graph.degrees){ (vid,vdata,deg) => deg.getOrElse(0).toLong}
+        val c = if (g.subgraph(vpred = (vid,deg) => deg <= coreVal).numVertices == 0) {
+          coreVal+1
+        }
+        else {
+          coreVal
+        }
+        val g2 = g.subgraph(vpred = (vid,deg) => deg > coreVal).cache
+        val newCores = cores.leftJoin(g.vertices.filter(x => x._2 <= coreVal).mapValues((vid,d) => coreVal)){ (vid,a,b) => b.getOrElse(a) }.cache
+        core(g2,c,newCores)
+      }
+    }
+
+    core(graph.mapVertices((vid,d) => 0L),0L,graph.vertices.mapValues(x => 0L))
+  }
+
   def modularity[VD: ClassTag](graph: Graph[VD,(Double,Double)], communities: RDD[(VertexId,Long)], weighed: Boolean = false) : Double = {
     // Computes the modularity of a partition on a given graph.
     //println(graph.edges.collect.mkString(", "))
@@ -284,11 +398,18 @@ object GraphTest {
     // the SparkContext is now available as sc
     val graph = buildDirGraph("resources/data/karate_club_nodes.txt","resources/data/karate_club.txt",sc)
     //println(graph.edges.collect.mkString("\n"))
-    val leaders = socialLeaders(graph)
+    //val leaders = socialLeaders(graph)
 
-    println(leaders.collect.mkString("\n"))
+    //println(leaders.collect.mkString("\n"))
     //println(edgeSignificance(graph).edges.collect.mkString("\n"))
-    //println(kCoreDecomposition(graph).collect.mkString("\n"))
+    
+    val t = now
+    println(kCoreDecomposition(graph).collect.mkString("\n"))
+    println(now-t)
+    val t1 = now
+    println("tailrec version")
+    println(kCoreDecomposition4(graph).collect.mkString("\n"))
+    println(now-t1)
     //val communities: RDD[(VertexId,Long)] = sc.textFile("E:/SparkPlayGround/karate_club_communities.txt").map(_.split(",")).map(x => (x(0).toLong,x(1).toLong))
     //println("Modularity = " + modularity(graph,communities))
     
